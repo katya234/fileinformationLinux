@@ -1,5 +1,5 @@
 #!/bin/bash
-
+echo "Hello"
 search_file() {
     local filename=$1
     echo "Ищем файл в системе..."
