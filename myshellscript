@@ -1,0 +1,80 @@
+#!/bin/bash
+
+search_file() {
+    local filename=$1
+    
+    # Ищем файл с помощью locate или find
+    if command -v locate &>/dev/null; then
+        results=($(locate -b "\/$filename" 2>/dev/null))
+    else
+        zenity --info --title="Внимание" --text="Команда 'locate' не найдена, используем медленный поиск через 'find'..." --width=300
+        results=($(find / -name "$filename" 2>/dev/null | head -10))
+    fi
+
+    if [ ${#results[@]} -eq 0 ]; then
+        zenity --error --title="Ошибка" --text="Файл '$filename' не найден в системе." --width=300
+        return 1
+    elif [ ${#results[@]} -eq 1 ]; then
+        analyze_file "${results[0]}"
+    else
+        # Создаем список для zenity
+        list_items=""
+        for i in "${!results[@]}"; do
+            list_items+="FALSE $((i+1)) ${results[$i]} "
+        done
+        
+        choice=$(zenity --list --title="Выбор файла" --text="Найдено несколько файлов:" \
+                 --column="Выбрать" --column="№" --column="Путь" $list_items --radiolist --height=300 --width=600)
+        
+        if [ -n "$choice" ]; then
+            # Извлекаем номер из выбранной строки (формат: "1) /path/to/file")
+            selected_num=$(echo "$choice" | awk '{print $1}' | tr -d ')')
+            analyze_file "${results[$selected_num-1]}"
+        else
+            zenity --info --title="Информация" --text="Поиск отменен." --width=200
+        fi
+    fi
+}
+
+analyze_file() {
+    local filepath="$1"
+    info_text="Информация о файле: $filepath\n"
+    info_text+="--------------------------------\n"
+    
+    if [ -f "$filepath" ]; then
+        info_text+="● Тип: Обычный файл\n"
+    elif [ -d "$filepath" ]; then
+        info_text+="● Тип: Директория\n"
+    elif [ -L "$filepath" ]; then
+        info_text+="● Тип: Символьная ссылка\n"
+    else
+        info_text+="● Тип: Специальный файл\n"
+    fi
+    
+    info_text+="● Владелец: $(stat -c %U "$filepath" 2>/dev/null || echo "недоступно")\n"
+    info_text+="● Права доступа: $(stat -c %A "$filepath" 2>/dev/null || echo "недоступно")\n"
+    
+    if [ -d "$filepath" ]; then
+        info_text+="● Размер: $(du -sh "$filepath" | cut -f1) (директория)\n"
+    else
+        info_text+="● Размер: $(du -sh "$filepath" | cut -f1) (детально: $(wc -c < "$filepath" 2>/dev/null || echo 0) байт)\n"
+    fi
+    
+    info_text+="● Дата изменения: $(stat -c %y "$filepath" 2>/dev/null || echo "недоступно")\n"
+    info_text+="--------------------------------\n"
+    
+    zenity --text-info --title="Информация о файле" --width=600 --height=400 --filename=<(echo -e "$info_text")
+}
+
+# Главный цикл программы
+while true; do
+    filename=$(zenity --entry --title="Поиск файлов" --text="Введите имя файла для поиска:" --entry-text="")
+    
+    # Проверка на выход
+    [ $? -ne 0 ] && break  # Пользователь нажал Cancel
+    [ -z "$filename" ] && zenity --error --title="Ошибка" --text="Пустое имя файла!" && continue
+    
+    search_file "$filename"
+done
+
+zenity --info --title="Завершение" --text="Программа завершена. До свидания!" --width=200
